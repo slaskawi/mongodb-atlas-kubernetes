@@ -2,9 +2,18 @@
 package deploy
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/mongodb/mongodb-atlas-kubernetes/test/e2e/actions/kube"
+
+	"k8s.io/apimachinery/pkg/types"
+
+	mdbv1 "github.com/mongodb/mongodb-atlas-kubernetes/pkg/api/v1"
+	"github.com/mongodb/mongodb-atlas-kubernetes/test/e2e/api/atlas"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -126,5 +135,100 @@ func MultiNamespaceOperator(data *model.TestDataProvider, watchNamespace []strin
 			},
 			"5m", "3s",
 		).Should(Equal("Running"), "The operator should successfully run")
+	})
+}
+
+func DeleteProject(testData *model.TestDataProvider) {
+	By("Delete Project", func() {
+		projectId := testData.Project.Status.ID
+		Expect(testData.K8SClient.Get(testData.Context, types.NamespacedName{Name: testData.Project.Name, Namespace: testData.Project.Namespace}, testData.Project)).Should(Succeed(), "Get project failed")
+		Expect(testData.K8SClient.Delete(testData.Context, testData.Project)).Should(Succeed(), "Delete project failed")
+		aClient := atlas.GetClientOrFail()
+		Eventually(func() bool {
+			return aClient.IsProjectExists(projectId)
+		}).WithTimeout(5*time.Minute).WithPolling(20*time.Second).Should(BeTrue(), "Project was not deleted in Atlas")
+	})
+}
+
+func DeleteUsers(testData *model.TestDataProvider) {
+	By("Delete Users", func() {
+		for _, user := range testData.Users {
+			Expect(testData.K8SClient.Get(testData.Context, types.NamespacedName{Name: user.Name, Namespace: user.Namespace}, user)).Should(Succeed(), "Get user failed")
+			Expect(testData.K8SClient.Delete(testData.Context, user)).Should(Succeed(), "Delete user failed")
+		}
+	})
+}
+
+func DeleteInitialDeployments(testData *model.TestDataProvider) {
+	By("Delete initial deployments", func() {
+		for _, deployment := range testData.InitialDeployments {
+			projectId := testData.Project.Status.ID
+			deploymentName := deployment.Spec.DeploymentSpec.Name
+			Expect(testData.K8SClient.Get(testData.Context, types.NamespacedName{Name: deployment.Name,
+				Namespace: testData.Resources.Namespace}, deployment)).Should(Succeed(), "Get deployment failed")
+			Expect(testData.K8SClient.Delete(testData.Context, deployment)).Should(Succeed(), "Deployment %s was not deleted", deployment.Name)
+			aClient := atlas.GetClientOrFail()
+			Eventually(func() bool {
+				return aClient.IsDeploymentExist(projectId, deploymentName)
+			}).WithTimeout(5*time.Minute).WithPolling(20*time.Second).Should(BeFalse(), "Deployment should be deleted in Atlas")
+		}
+	})
+}
+
+func Project(testData *model.TestDataProvider) {
+	if testData.Project.GetNamespace() == "" {
+		testData.Project.Namespace = testData.Resources.Namespace
+	}
+	By(fmt.Sprintf("Deploy Project %s", testData.Project.GetName()), func() {
+		err := testData.K8SClient.Create(testData.Context, testData.Project)
+		Expect(err).ShouldNot(HaveOccurred(), "Project %s was not created", testData.Project.GetName())
+		Eventually(kube.GetReadyProjectStatus(testData)).WithTimeout(5*time.Minute).WithPolling(20*time.Second).
+			Should(Not(Equal("False")), "Project %s should be ready", testData.Project.GetName())
+	})
+	By(fmt.Sprintf("Wait for Project %s", testData.Project.GetName()), func() {
+		Eventually(func() bool {
+			statuses := kube.GetProjectStatus(testData)
+			return statuses.ID != ""
+		}, 5*time.Minute, 5*time.Second).Should(BeTrue(), "Project %s is not ready", kube.GetProjectStatus(testData))
+	})
+}
+
+func InitialDeployments(testData *model.TestDataProvider) {
+	By("Deploy Initial Deployments", func() {
+		for _, deployment := range testData.InitialDeployments {
+			if deployment.Namespace == "" {
+				deployment.Namespace = testData.Resources.Namespace
+				deployment.Spec.Project.Namespace = testData.Resources.Namespace // TODO: remove after fix
+			}
+			err := testData.K8SClient.Create(testData.Context, deployment)
+			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("Deployment was not created: %v", deployment))
+
+			deploymentForCheck := &mdbv1.AtlasDeployment{}
+			Eventually(func(g Gomega) {
+				err = testData.K8SClient.Get(testData.Context, types.NamespacedName{Name: deployment.GetName(), Namespace: deployment.GetNamespace()}, deploymentForCheck)
+				Expect(err).Should(BeNil(), fmt.Sprintf("Deployment not found: %v", deploymentForCheck))
+				By(fmt.Sprintf("Deployment %s status: %v", deploymentForCheck.ObjectMeta.Name, deploymentForCheck.Status))
+				g.Eventually(kube.DeploymentReady(testData)).WithTimeout(60*time.Minute).WithPolling(20*time.Second).Should(Equal("True"), "Deployment should be ready")
+			}, time.Minute*60, time.Second*5).Should(Succeed(), "Deployment was not created")
+		}
+	})
+}
+
+func Users(testData *model.TestDataProvider) {
+	By("Deploy Users", func() {
+		for _, user := range testData.Users {
+			if user.Namespace == "" { // TODO: remove after fix
+				user.Namespace = testData.Resources.Namespace
+			}
+			if user.Spec.PasswordSecret != nil {
+				secret := utils.UserSecretPassword()
+				Expect(kubecli.CreateUserSecret(testData.Context, testData.K8SClient, secret,
+					user.Spec.PasswordSecret.Name, testData.Resources.Namespace)).Should(Succeed(),
+					"Create user secret failed")
+				// TODO: remake namespaces after fix
+			}
+			err := testData.K8SClient.Create(testData.Context, user)
+			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("User was not created: %v", user))
+		}
 	})
 }

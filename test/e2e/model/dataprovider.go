@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	v1 "github.com/mongodb/mongodb-atlas-kubernetes/pkg/api/v1"
+
 	kubecli "github.com/mongodb/mongodb-atlas-kubernetes/test/e2e/cli/kubecli"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,10 +21,15 @@ type TestDataProvider struct {
 	SkipAppConnectivityCheck bool
 	Context                  context.Context
 	K8SClient                client.Client
+	InitialDeployments       []*v1.AtlasDeployment
+	Project                  *v1.AtlasProject
+	Prefix                   string
+	Users                    []*v1.AtlasDatabaseUser
 }
 
 func NewTestDataProvider(keyTestPrefix string, project AProject, r *AtlasKeyType, initDeploymentConfigs []string, updateDeploymentConfig []string, users []DBUser, portGroup int, actions []func(*TestDataProvider)) TestDataProvider {
 	var data TestDataProvider
+	data.Prefix = keyTestPrefix
 	data.ConfPaths = initDeploymentConfigs
 	data.ConfUpdatePaths = updateDeploymentConfig
 	data.Resources = NewUserInputs(keyTestPrefix, project, users, r)
@@ -38,4 +45,20 @@ func NewTestDataProvider(keyTestPrefix string, project AProject, r *AtlasKeyType
 	}
 	data.K8SClient = k8sClient
 	return data
+}
+
+func (data TestDataProvider) WithInitialDeployments(deployments ...*v1.AtlasDeployment) *TestDataProvider {
+	data.InitialDeployments = append(data.InitialDeployments, deployments...)
+	return &data
+}
+
+func (data TestDataProvider) WithProject(project *v1.AtlasProject) *TestDataProvider {
+	project.Spec.Name = fmt.Sprintf("%s-%s", data.Prefix, project.Spec.Name)
+	data.Project = project
+	return &data
+}
+
+func (data TestDataProvider) WithUsers(users ...*v1.AtlasDatabaseUser) *TestDataProvider {
+	data.Users = append(data.Users, users...)
+	return &data
 }

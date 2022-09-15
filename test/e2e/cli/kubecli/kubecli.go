@@ -13,12 +13,11 @@ import (
 
 	"github.com/mongodb/mongodb-atlas-kubernetes/pkg/api/v1/status"
 
-	corev1 "k8s.io/api/core/v1"
-
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gbytes"
 	"github.com/onsi/gomega/gexec"
 	"github.com/sethvargo/go-password/password"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -57,8 +56,6 @@ func GetPodStatus(ctx context.Context, k8sClient client.Client, ns string) (stri
 	}
 	return string(pod.Items[0].Status.Phase), nil
 }
-
-// TODO: remove
 
 // DescribeOperatorPod performs "kubectl describe" to get Operator pod information
 func DescribeOperatorPod(ns string) string {
@@ -221,46 +218,33 @@ func CreateNamespace(ctx context.Context, k8sClient client.Client, ns string) er
 	return nil
 }
 
-func CreateRandomUserSecret(name, ns string) {
+func CreateRandomUserSecret(ctx context.Context, k8sClient client.Client, name, ns string) error {
 	secret, _ := password.Generate(10, 3, 0, false, false)
-	CreateUserSecret(secret, name, ns)
+	return CreateUserSecret(ctx, k8sClient, secret, name, ns)
 }
 
-func CreateUserSecret(secret, name, ns string) {
-	session := cli.ExecuteWithoutWriter("kubectl", "create", "secret", "generic", name,
-		"--from-literal=password="+secret,
-		"-n", ns,
-	)
-	result := cli.GetSessionExitMsg(session)
-	EventuallyWithOffset(1, result).Should(SatisfyAny(Say(name+" created"), Say("already exists")), "Can't create user secret"+name)
-
-	labels := map[string]string{
+func CreateUserSecret(ctx context.Context, k8sClient client.Client, secret, name, ns string) error {
+	secretObj := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+		},
+		StringData: map[string]string{
+			"password": secret,
+		},
+	}
+	secretObj.SetLabels(map[string]string{
 		connectionsecret.TypeLabelKey: connectionsecret.CredLabelVal,
+	})
+	err := k8sClient.Create(ctx, secretObj)
+	if err != nil {
+		return err
 	}
-
-	// apply all labels to the secret
-	for k, v := range labels {
-		session = cli.ExecuteWithoutWriter("kubectl", "label", "secret", name, fmt.Sprintf("%s=%s", k, v), "-n", ns, "--overwrite")
-		result = cli.GetSessionExitMsg(session)
-		Eventually(result).Should(SatisfyAny(Say("secret/"+name+" labeled"), Say("secret/"+name+" not labeled")))
-	}
+	return nil
 }
 
-func CreateApiKeySecret(keyName, ns string) {
-	session := cli.ExecuteWithoutWriter("kubectl", "create", "secret", "generic", keyName,
-		"--from-literal=orgId="+os.Getenv("MCLI_ORG_ID"),
-		"--from-literal=publicApiKey="+os.Getenv("MCLI_PUBLIC_API_KEY"),
-		"--from-literal=privateApiKey="+os.Getenv("MCLI_PRIVATE_API_KEY"),
-		"-n", ns,
-	)
-	result := cli.GetSessionExitMsg(session)
-	EventuallyWithOffset(1, result).Should(SatisfyAny(Say(keyName+" created"), Say("already exists")), "Can't create secret"+keyName)
-
-	session = cli.Execute("kubectl", "label", "secret", keyName, fmt.Sprintf("%s=%s", connectionsecret.TypeLabelKey, connectionsecret.CredLabelVal), "-n", ns, "--overwrite")
-	result = cli.GetSessionExitMsg(session)
-
-	// the output is "not labeled" if a label attempt is made and the label already exists with the same value.
-	Eventually(result).Should(SatisfyAny(Say("secret/"+keyName+" labeled"), Say("secret/"+keyName+" not labeled")))
+func CreateDefaultSecret(ctx context.Context, k8sClient client.Client, name, ns string) {
+	Expect(CreateSecret(ctx, k8sClient, os.Getenv("MCLI_PUBLIC_API_KEY"), os.Getenv("MCLI_PRIVATE_API_KEY"), name, ns)).Should(Succeed())
 }
 
 func CreateSecret(ctx context.Context, k8sClient client.Client, publicKey, privateKey, name, ns string) error {

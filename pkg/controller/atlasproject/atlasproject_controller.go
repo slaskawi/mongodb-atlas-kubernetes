@@ -286,6 +286,10 @@ func (r *AtlasProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *AtlasProjectReconciler) addDeletionFinalizer(ctx context.Context, p *mdbv1.AtlasProject) error {
+	err := r.Client.Get(ctx, kube.ObjectKeyFromObject(p), p)
+	if err != nil {
+		return fmt.Errorf("failed to get project before adding deletion finalizer: %w", err)
+	}
 	p.Finalizers = append(p.GetFinalizers(), getFinalizerName())
 	if err := r.Client.Update(ctx, p); err != nil {
 		return fmt.Errorf("failed to add deletion finalizer for %s: %w", p.Name, err)
@@ -294,6 +298,10 @@ func (r *AtlasProjectReconciler) addDeletionFinalizer(ctx context.Context, p *md
 }
 
 func (r *AtlasProjectReconciler) removeDeletionFinalizer(ctx context.Context, p *mdbv1.AtlasProject) error {
+	err := r.Client.Get(ctx, kube.ObjectKeyFromObject(p), p)
+	if err != nil {
+		return fmt.Errorf("failed to get project before removing deletion finalizer: %w", err)
+	}
 	p.Finalizers = removeString(p.GetFinalizers(), getFinalizerName())
 	if err := r.Client.Update(ctx, p); err != nil {
 		return fmt.Errorf("failed to remove deletion finalizer from %s: %w", p.Name, err)

@@ -36,7 +36,10 @@ var _ = Describe("Users can use clusterwide configuration with limitation to wat
 					config.DefaultOperatorNS,
 				)
 				for _, data := range listData {
-					actions.SaveProjectsToFile(data.Context, data.K8SClient, data.Resources.Namespace)
+					actions.SaveK8sResources(
+						[]string{"atlasprojects"},
+						data.Resources.Namespace,
+					)
 				}
 				actions.AfterEachFinalCleanup(listData)
 			}
@@ -94,7 +97,7 @@ var _ = Describe("Users can use clusterwide configuration with limitation to wat
 				actions.PrepareUsersConfigurations(&listData[i])
 			}
 			deploy.MultiNamespaceOperator(&listData[0], watchedNamespace)
-			kubecli.CreateApiKeySecret(config.DefaultOperatorGlobalKey, config.DefaultOperatorNS)
+			kubecli.CreateDefaultSecret(listData[0].Context, listData[0].K8SClient, config.DefaultOperatorGlobalKey, config.DefaultOperatorNS)
 		})
 		By("Check if operator working as expected: watched/not watched namespaces", func() {
 			crdsFile := listData[0].Resources.GetOperatorFolder() + "/crds.yaml"
@@ -146,7 +149,7 @@ func watchedFlow(data *model.TestDataProvider, crdsFile string) {
 }
 
 func notWatchedFlow(data *model.TestDataProvider, crdsFile string) {
-	By("Deploy users resources", func() {
+	By("Deploy users resorces", func() {
 		if !data.Resources.AtlasKeyAccessType.GlobalLevelKey {
 			actions.CreateConnectionAtlasKey(data)
 		}
@@ -156,6 +159,6 @@ func notWatchedFlow(data *model.TestDataProvider, crdsFile string) {
 	By("Check if projects were deployed", func() {
 		Eventually(
 			kube.GetReadyProjectStatus(data),
-		).Should(BeEmpty(), "Kubernetes resource: Project status `Ready` should be empty. NOT Watched namespace")
+		).Should(BeEmpty(), "Kubernetes resource: Project status `Ready` should be False. NOT Watched namespace")
 	})
 }

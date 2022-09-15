@@ -6,6 +6,10 @@ import (
 	"strconv"
 	"time"
 
+	v1 "github.com/mongodb/mongodb-atlas-kubernetes/pkg/api/v1"
+
+	"k8s.io/apimachinery/pkg/types"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mongodb/mongodb-atlas-kubernetes/pkg/api/v1/status"
@@ -28,17 +32,69 @@ import (
 
 func WaitDeployment(data *model.TestDataProvider, generation int) {
 	input := data.Resources
-	EventuallyWithOffset(1,
-		func(g Gomega) int {
-			gen, err := kubecli.GetDeploymentObservedGeneration(data.Context, data.K8SClient, input.Namespace, input.Deployments[0].ObjectMeta.GetName())
-			g.Expect(err).ToNot(HaveOccurred())
-			return gen
-		},
-	).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Equal(generation))
+	if len(data.Resources.Deployments) > 0 {
+		EventuallyWithOffset(1,
+			func(g Gomega) int {
+				gen, err := kubecli.GetDeploymentObservedGeneration(data.Context, data.K8SClient, input.Namespace, input.Deployments[0].ObjectMeta.GetName())
+				g.Expect(err).ToNot(HaveOccurred())
+				return gen
+			},
+		).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Equal(generation))
 
-	WaitDeploymentWithoutGenerationCheck(data)
+		WaitDeploymentWithoutGenerationCheck(data)
+	}
+
+	if len(data.InitialDeployments) > 0 {
+		EventuallyWithOffset(1,
+			func(g Gomega) int {
+				gen, err := kubecli.GetDeploymentObservedGeneration(data.Context, data.K8SClient, input.Namespace, data.InitialDeployments[0].ObjectMeta.GetName())
+				g.Expect(err).ToNot(HaveOccurred())
+				return gen
+			},
+		).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Equal(generation))
+
+		WaitDeploymentWithoutGenerationCheckV2(data)
+	}
 }
 
+// nolint: dupl
+func WaitDeploymentWithoutGenerationCheckV2(data *model.TestDataProvider) {
+	input := data.Resources
+	EventuallyWithOffset(1,
+		func(g Gomega) string {
+			deploymentStatus, err := kubecli.GetDeploymentStatusCondition(data.Context, data.K8SClient, status.ReadyType, input.Namespace, data.InitialDeployments[0].ObjectMeta.GetName())
+			g.Expect(err).ToNot(HaveOccurred())
+			return deploymentStatus
+		},
+		"60m", "1m",
+	).Should(Equal("True"), "Kubernetes resource: Deployment status `Ready` should be 'True'")
+
+	deploymentState, err := kubecli.GetK8sDeploymentStateName(data.Context, data.K8SClient,
+		input.Namespace, data.InitialDeployments[0].ObjectMeta.GetName())
+	ExpectWithOffset(1, err).ToNot(HaveOccurred())
+	ExpectWithOffset(1, deploymentState).Should(Equal("IDLE"), "Kubernetes resource: Deployment status should be IDLE")
+
+	deployment := data.InitialDeployments[0]
+	switch {
+	case deployment.Spec.AdvancedDeploymentSpec != nil:
+		atlasClient, err := atlas.AClient()
+		Expect(err).To(BeNil())
+		advancedDeployment, err := atlasClient.GetAdvancedDeployment(input.ProjectID, deployment.Spec.AdvancedDeploymentSpec.Name)
+		Expect(err).To(BeNil())
+		Expect(advancedDeployment.StateName).To(Equal("IDLE"))
+	case deployment.Spec.ServerlessSpec != nil:
+		atlasClient, err := atlas.AClient()
+		Expect(err).To(BeNil())
+		serverlessInstance, err := atlasClient.GetServerlessInstance(input.ProjectID, deployment.Spec.ServerlessSpec.Name)
+		Expect(err).To(BeNil())
+		Expect(serverlessInstance.StateName).To(Equal("IDLE"))
+	default:
+		aClient := atlas.GetClientOrFail()
+		Expect(aClient.GetDeployment(input.ProjectID, input.Deployments[0].Spec.GetDeploymentName()).StateName).Should(Equal("IDLE"))
+	}
+}
+
+// nolint: dupl
 func WaitDeploymentWithoutGenerationCheck(data *model.TestDataProvider) {
 	input := data.Resources
 	EventuallyWithOffset(1,
@@ -119,6 +175,23 @@ func CheckIfUsersExist(input model.UserInputs) func() bool {
 
 		for _, user := range input.Users {
 			dbUser, err := atlasClient.GetUserByName(setAdminIfEmpty(user.Spec.DatabaseName), input.ProjectID, user.Spec.Username)
+			if err != nil && dbUser == nil {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func CheckUserExistInAtlas(data *model.TestDataProvider) func() bool {
+	return func() bool {
+		atlasClient, err := atlas.AClient()
+		if err != nil {
+			return false
+		}
+
+		for _, user := range data.Users {
+			dbUser, err := atlasClient.GetUserByName(setAdminIfEmpty(user.Spec.DatabaseName), data.Project.ID(), user.Spec.Username)
 			if err != nil && dbUser == nil {
 				return false
 			}
@@ -253,15 +326,15 @@ func SaveDeploymentDump(input model.UserInputs) {
 func CheckUsersAttributes(data *model.TestDataProvider) {
 	input := data.Resources
 	aClient := atlas.GetClientOrFail()
-	userDBResourceName := func(deploymentName string, user model.DBUser) string { // user name helmkind or kube-test-kind
+	userDBResourceName := func(deploymentName string, user *v1.AtlasDatabaseUser) string { // user name helmkind or kube-test-kind
 		if input.KeyName[0:4] == "helm" {
 			return fmt.Sprintf("%s-%s", deploymentName, user.Spec.Username)
 		}
 		return user.ObjectMeta.GetName()
 	}
 
-	for _, deployment := range input.Deployments {
-		for _, user := range input.Users {
+	for _, deployment := range data.InitialDeployments {
+		for _, user := range data.Users {
 			var atlasUser *mongodbatlas.DatabaseUser
 
 			getUser := func() bool {
@@ -365,7 +438,8 @@ func PrepareUsersConfigurations(data *model.TestDataProvider) {
 				for _, user := range data.Resources.Users {
 					user.SaveConfigurationTo(data.Resources.ProjectPath)
 					if user.Spec.PasswordSecret != nil {
-						kubecli.CreateRandomUserSecret(user.Spec.PasswordSecret.Name, data.Resources.Namespace)
+						Expect(kubecli.CreateRandomUserSecret(data.Context, data.K8SClient,
+							user.Spec.PasswordSecret.Name, data.Resources.Namespace)).Should(Succeed())
 					}
 				}
 			})
@@ -377,9 +451,9 @@ func PrepareUsersConfigurations(data *model.TestDataProvider) {
 func CreateConnectionAtlasKey(data *model.TestDataProvider) {
 	By("Change resources depends on AtlasKey and create key", func() {
 		if data.Resources.AtlasKeyAccessType.GlobalLevelKey {
-			kubecli.CreateApiKeySecret(config.DefaultOperatorGlobalKey, data.Resources.Namespace)
+			kubecli.CreateDefaultSecret(data.Context, data.K8SClient, config.DefaultOperatorGlobalKey, data.Resources.Namespace)
 		} else {
-			kubecli.CreateApiKeySecret(data.Resources.KeyName, data.Resources.Namespace)
+			kubecli.CreateDefaultSecret(data.Context, data.K8SClient, data.Prefix, data.Resources.Namespace)
 		}
 	})
 }
@@ -411,20 +485,6 @@ func recreateAtlasKeyIfNeed(data *model.TestDataProvider) {
 	}
 }
 
-func DeployProject(data *model.TestDataProvider) {
-	By("Create users resources: keys, project", func() {
-		CreateConnectionAtlasKey(data)
-		kubecli.Apply(data.Resources.ProjectPath, "-n", data.Resources.Namespace)
-	})
-}
-
-func UpdateProjectID(data *model.TestDataProvider) {
-	atlasProject, err := kube.GetProjectResource(data)
-	Expect(err).Should(BeNil(), "Error has Occurred")
-	data.Resources.ProjectID = atlasProject.Status.ID
-	Expect(data.Resources.ProjectID).ShouldNot(BeEmpty())
-}
-
 func DeployProjectAndWait(data *model.TestDataProvider, generation int) {
 	By("Create users resources: keys, project", func() {
 		CreateConnectionAtlasKey(data)
@@ -441,18 +501,20 @@ func DeployProjectAndWait(data *model.TestDataProvider, generation int) {
 }
 
 func DeployDeployment(data *model.TestDataProvider) {
-	By("Create deployment", func() {
-		kubecli.Apply(data.Resources.Deployments[0].DeploymentFileName(data.Resources), "-n", data.Resources.Namespace)
-	})
-	By("Wait deployment creation", func() {
-		WaitDeployment(data, 1)
-	})
-	By("check deployment Attribute", func() {
-		aClient, err := atlas.AClient()
-		Expect(err).NotTo(HaveOccurred())
-		deployment := aClient.GetDeployment(data.Resources.ProjectID, data.Resources.Deployments[0].Spec.DeploymentSpec.Name)
-		CompareDeploymentsSpec(data.Resources.Deployments[0].Spec, deployment)
-	})
+	if len(data.Resources.Deployments) > 0 {
+		By("Create deployment", func() {
+			kubecli.Apply(data.Resources.Deployments[0].DeploymentFileName(data.Resources), "-n", data.Resources.Namespace)
+		})
+		By("Wait deployment creation", func() {
+			WaitDeploymentWithoutGenerationCheck(data)
+		})
+		By("check deployment Attribute", func() {
+			aClient, err := atlas.AClient()
+			Expect(err).NotTo(HaveOccurred())
+			deployment := aClient.GetDeployment(data.Resources.ProjectID, data.Resources.Deployments[0].Spec.DeploymentSpec.Name)
+			CompareDeploymentsSpec(data.Resources.Deployments[0].Spec, deployment)
+		})
+	}
 }
 
 func DeployUsers(data *model.TestDataProvider) {
@@ -508,6 +570,40 @@ func DeleteUserResourcesProject(data *model.TestDataProvider) {
 			},
 			"5m", "20s",
 		).Should(BeFalse(), "Project should be deleted from Atlas")
+	})
+}
+
+func DeleteTestDataProject(data *model.TestDataProvider) {
+	By("Delete project", func() {
+		Expect(data.K8SClient.Get(data.Context, types.NamespacedName{Name: data.Project.Name, Namespace: data.Project.Namespace}, data.Project)).Should(Succeed())
+		projectID := data.Project.Status.ID
+		Expect(data.K8SClient.Delete(data.Context, data.Project)).Should(Succeed())
+		Eventually(
+			func() bool {
+				aClient := atlas.GetClientOrFail()
+				return aClient.IsProjectExists(projectID)
+			},
+			"5m", "20s",
+		).Should(BeFalse(), "Project should be deleted from Atlas")
+	})
+}
+
+func DeleteTestDataDeployments(data *model.TestDataProvider) {
+	By("Delete deployment", func() {
+		for _, deployment := range data.InitialDeployments {
+			Expect(data.K8SClient.Get(data.Context, types.NamespacedName{Name: data.Project.Name, Namespace: data.Project.Namespace}, data.Project)).Should(Succeed())
+			projectID := data.Project.Status.ID
+			Expect(data.K8SClient.Get(data.Context, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, deployment)).Should(Succeed())
+			Expect(data.K8SClient.Delete(data.Context, deployment)).Should(Succeed())
+			deploymentName := deployment.Spec.DeploymentSpec.Name //TODO: for advanced too
+			Eventually(
+				func() bool {
+					aClient := atlas.GetClientOrFail()
+					return aClient.IsDeploymentExist(projectID, deploymentName)
+				},
+				"5m", "20s",
+			).Should(BeFalse(), "Deployment should be deleted from Atlas")
+		}
 	})
 }
 
