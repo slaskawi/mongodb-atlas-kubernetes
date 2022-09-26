@@ -6,8 +6,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/mongodb/mongodb-atlas-kubernetes/test/e2e/config"
-
 	"github.com/mongodb/mongodb-atlas-kubernetes/test/e2e/data"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -95,10 +93,8 @@ func projectCreationFlow(userData *model.TestDataProvider) {
 		actions.PrepareUsersConfigurations(userData)
 		deploy.NamespacedOperator(userData) // TODO: how to deploy operator by code?
 		Expect(kubecli.CreateNamespace(userData.Context, userData.K8SClient, userData.Resources.Namespace)).Should(Succeed())
-		kubecli.CreateDefaultSecret(userData.Context, userData.K8SClient, config.DefaultOperatorGlobalKey, userData.Resources.Namespace)
-		if !userData.Resources.AtlasKeyAccessType.GlobalLevelKey {
-			actions.CreateConnectionAtlasKey(userData)
-		}
+		actions.CreateConnectionAtlasKey(userData)
+
 		secretList := &corev1.SecretList{}
 		Expect(userData.K8SClient.List(userData.Context, secretList)).Should(Succeed())
 		By("Project Namespace: " + userData.Project.Namespace)
