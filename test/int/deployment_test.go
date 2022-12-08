@@ -13,8 +13,6 @@ import (
 	"github.com/mongodb/mongodb-atlas-kubernetes/pkg/controller/connectionsecret"
 	"github.com/mongodb/mongodb-atlas-kubernetes/pkg/util/compat"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	"go.mongodb.org/atlas/mongodbatlas"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -365,7 +363,7 @@ var _ = Describe("AtlasDeployment", Label("int", "AtlasDeployment"), func() {
 		})
 	})
 
-	Describe("Create deployment & change it to GEOSHARDED", Label("int", "geosharded", "slow"), func() {
+	Describe("Create deployment & change it to GEOSHARDED", Label("int", "geosharded"), func() {
 		It("Should Succeed", func() {
 			expectedDeployment := mdbv1.DefaultAWSDeployment(namespace.Name, createdProject.Name)
 

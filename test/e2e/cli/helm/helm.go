@@ -57,7 +57,7 @@ func Install(args ...string) {
 	session := cli.Execute("helm", args...)
 	msg := cli.GetSessionExitMsg(session)
 	ExpectWithOffset(1, msg).Should(SatisfyAny(Say("STATUS: deployed"), Say("already exists"), BeEmpty()),
-		"HELM. Can't install release",
+		fmt.Sprintf("HELM. Can't install release. Message: %s", string(msg.Contents())),
 	)
 }
 
