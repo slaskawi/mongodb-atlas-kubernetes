@@ -188,6 +188,12 @@ jobs:
         uses: actions/setup-go@v3
         with:
           go-version-file: "${{ github.workspace }}/go.mod"
+      - name: Docker login
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Install operator-sdk-v1.22.0
         run: |
           wget https://github.com/operator-framework/operator-sdk/releases/download/v1.22.0/operator-sdk_linux_amd64 -q
