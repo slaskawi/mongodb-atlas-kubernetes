@@ -242,6 +242,7 @@ func (s sessionAWS) GetCustomerMasterKeyID(atlasAccountArn, assumedRoleArn strin
 		PolicyName: aws.String("default"),
 		Policy:     aws.String(policyString),
 	}
+	fmt.Println("DEBUG>>> ", policyInput)
 	_, err = s.kms.PutKeyPolicy(policyInput)
 	if err != nil {
 		return "", err
@@ -267,6 +268,8 @@ func getKeyIDAndAdminARNs() (keyID string, adminARNs []string, err error) {
 		err = errors.New("AWS_ACCOUNT_ARN_LIST wasn't parsed properly, please separate accounts via a comma")
 		return
 	}
+	fmt.Println(">>> DEBUG <<< ADMIN_ARNS", adminARNs)
+	fmt.Println(">>> DEBUG <<< AWS_KMS_KEY_ID", keyID[0:len(keyID)-1])
 
 	return keyID, adminARNs, nil
 }
