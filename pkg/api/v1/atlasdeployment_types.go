@@ -17,7 +17,6 @@ limitations under the License.
 package v1
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -180,21 +179,6 @@ func (s *AdvancedDeploymentSpec) ToAtlas() (*mongodbatlas.AdvancedCluster, error
 	result := &mongodbatlas.AdvancedCluster{}
 	err := compat.JSONCopy(result, s)
 	return result, err
-}
-
-func LessAD(a, b interface{}) bool {
-	switch a.(type) {
-	case *AdvancedReplicationSpec:
-		return a.(*AdvancedReplicationSpec).ZoneName < b.(*AdvancedReplicationSpec).ZoneName
-	case *AdvancedRegionConfig:
-		return a.(*AdvancedRegionConfig).RegionName < b.(*AdvancedRegionConfig).RegionName
-	case ManagedNamespace:
-		return a.(ManagedNamespace).Collection < b.(ManagedNamespace).Collection
-	case CustomZoneMapping:
-		return a.(CustomZoneMapping).Zone < b.(CustomZoneMapping).Zone
-	default:
-		return false
-	}
 }
 
 // ServerlessSpec defines the desired state of Atlas Serverless Instance
@@ -505,8 +489,8 @@ type RegionsConfig struct {
 // Check compatibility with library type.
 var _ = RegionsConfig(mongodbatlas.RegionsConfig{})
 
-// LegacyDeployment converts the Spec to native Atlas client format.
-func (spec *AtlasDeploymentSpec) LegacyDeployment() (*mongodbatlas.Cluster, error) {
+// Deployment converts the Spec to native Atlas client format.
+func (spec *AtlasDeploymentSpec) Deployment() (*mongodbatlas.Cluster, error) {
 	result := &mongodbatlas.Cluster{}
 	err := compat.JSONCopy(result, *spec.DeploymentSpec)
 
@@ -518,16 +502,6 @@ func (spec *AtlasDeploymentSpec) LegacyDeployment() (*mongodbatlas.Cluster, erro
 		result.ProviderSettings.AutoScaling.AutoIndexingEnabled = nil
 	}
 
-	return result, err
-}
-
-// Deployment converts the Spec to native Atlas client format.
-func (spec *AtlasDeploymentSpec) Deployment() (*mongodbatlas.AdvancedCluster, error) {
-	result := &mongodbatlas.AdvancedCluster{}
-	if spec.AdvancedDeploymentSpec == nil {
-		return result, errors.New("AdvancedDeploymentSpec is empty")
-	}
-	err := compat.JSONCopy(result, *spec.AdvancedDeploymentSpec)
 	return result, err
 }
 
@@ -545,27 +519,18 @@ type AtlasDeployment struct {
 }
 
 func (c *AtlasDeployment) GetDeploymentName() string {
-	if c.IsLegacyDeployment() {
-		return c.Spec.DeploymentSpec.Name
+	if c.IsAdvancedDeployment() {
+		return c.Spec.AdvancedDeploymentSpec.Name
 	}
 	if c.IsServerless() {
 		return c.Spec.ServerlessSpec.Name
 	}
-	if c.IsAdvancedDeployment() {
-		return c.Spec.AdvancedDeploymentSpec.Name
-	}
-
-	return ""
+	return c.Spec.DeploymentSpec.Name
 }
 
 // IsServerless returns true if the AtlasDeployment is configured to be a serverless instance
 func (c *AtlasDeployment) IsServerless() bool {
 	return c.Spec.ServerlessSpec != nil
-}
-
-// IsLegacyDeployment returns true if the AtlasDeployment is configured to be an legacy deployment.
-func (c *AtlasDeployment) IsLegacyDeployment() bool {
-	return c.Spec.DeploymentSpec != nil
 }
 
 // IsAdvancedDeployment returns true if the AtlasDeployment is configured to be an advanced deployment.
@@ -676,7 +641,7 @@ func newAwsAdvancedDeployment(namespace, name, nameInAtlas, instanceSize, provid
 }
 
 func (c *AtlasDeployment) WithName(name string) *AtlasDeployment {
-	c.Name = name
+	c.Spec.DeploymentSpec.Name = name
 	return c
 }
 

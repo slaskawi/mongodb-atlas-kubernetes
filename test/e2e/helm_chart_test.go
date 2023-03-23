@@ -267,7 +267,7 @@ func waitDeploymentWithChecks(data *model.TestDataProvider) {
 		deployment := data.Resources.Deployments[0]
 		switch {
 		case deployment.Spec.AdvancedDeploymentSpec != nil:
-			advancedDeployment, err := atlasClient.GetDeployment(data.Resources.ProjectID, deployment.Spec.AdvancedDeploymentSpec.Name)
+			advancedDeployment, err := atlasClient.GetAdvancedDeployment(data.Resources.ProjectID, deployment.Spec.AdvancedDeploymentSpec.Name)
 			Expect(err).To(BeNil())
 			actions.CompareAdvancedDeploymentsSpec(deployment.Spec, *advancedDeployment)
 		case deployment.Spec.ServerlessSpec != nil:
@@ -275,9 +275,8 @@ func waitDeploymentWithChecks(data *model.TestDataProvider) {
 			Expect(err).To(BeNil())
 			actions.CompareServerlessSpec(deployment.Spec, *serverlessInstance)
 		default:
-			uDeployment, err := atlasClient.GetDeployment(data.Resources.ProjectID, data.Resources.Deployments[0].Spec.DeploymentSpec.Name)
-			Expect(err).To(BeNil())
-			actions.CompareAdvancedDeploymentsSpec(deployment.Spec, *uDeployment)
+			uDeployment := atlasClient.GetDeployment(data.Resources.ProjectID, data.Resources.Deployments[0].Spec.DeploymentSpec.Name)
+			actions.CompareDeploymentsSpec(deployment.Spec, uDeployment)
 		}
 	})
 

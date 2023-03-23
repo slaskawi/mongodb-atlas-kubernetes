@@ -33,9 +33,8 @@ func HelmDefaultUpgradeResources(data *model.TestDataProvider) {
 			ExpectWithOffset(1, data.Resources.ProjectID).ShouldNot(BeEmpty())
 		})
 		aClient := atlas.GetClientOrFail()
-		updatedDeployment, err := aClient.GetDeployment(data.Resources.ProjectID, data.Resources.Deployments[0].Spec.GetDeploymentName())
-		Expect(err).NotTo(HaveOccurred())
-		CompareAdvancedDeploymentsSpec(data.Resources.Deployments[0].Spec, *updatedDeployment)
+		updatedDeployment := aClient.GetDeployment(data.Resources.ProjectID, data.Resources.Deployments[0].Spec.GetDeploymentName())
+		CompareDeploymentsSpec(data.Resources.Deployments[0].Spec, updatedDeployment)
 		Eventually(func() error {
 			aClient := atlas.GetClientOrFail()
 			user, err := aClient.GetDBUser("admin", data.Resources.Users[0].Spec.Username, data.Resources.ProjectID)
@@ -88,9 +87,8 @@ func HelmUpgradeChartVersions(data *model.TestDataProvider) {
 		By("Wait updating")
 		WaitDeployment(data, generation+1)
 		aClient := atlas.GetClientOrFail()
-		updatedDeployment, err := aClient.GetDeployment(data.Resources.ProjectID, data.Resources.Deployments[0].Spec.GetDeploymentName())
-		Expect(err).NotTo(HaveOccurred())
-		CompareAdvancedDeploymentsSpec(data.Resources.Deployments[0].Spec, *updatedDeployment)
+		updatedDeployment := aClient.GetDeployment(data.Resources.ProjectID, data.Resources.Deployments[0].Spec.GetDeploymentName())
+		CompareDeploymentsSpec(data.Resources.Deployments[0].Spec, updatedDeployment)
 		CheckUsersAttributes(data)
 	})
 }
