@@ -1,0 +1,23 @@
+name: 'openshift-release'
+description: 'Prepare pull requests to release operator bundle for Openshift ecosystem'
+inputs:
+  version:
+    description: The version of the bundle to be release
+    required: true
+  openshift_repository:
+    description: The name of the Openshift repository to create the release
+    required: true
+  certified:
+    description: Flag to prepare bundle release for certification
+    required: true
+  github_token:
+    description: Github token to manipulate release repositories
+    required: true
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    VERSION: ${{ inputs.version }}
+    OPENSHIFT_REPOSITORY: ${{ inputs.openshift_repository }}
+    CERTIFIED: ${{ inputs.certified }}
+    GITHUB_TOKEN: ${{ inputs.github_token }}
