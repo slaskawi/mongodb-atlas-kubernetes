@@ -68,6 +68,7 @@ func init() {
 }
 
 func main() {
+	fmt.Println("HELLO WORLD!")
 	// controller-runtime/pkg/log/zap is a wrapper over zap that implements logr
 	// logr looks quite limited in functionality so we better use Zap directly.
 	// Though we still need the controller-runtime library and go-logr/zapr as they are used in controller-runtime
