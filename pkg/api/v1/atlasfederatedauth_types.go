@@ -121,12 +121,12 @@ type AtlasFederatedAuth struct {
 	Status status.AtlasFederatedAuthStatus `json:"status,omitempty"`
 }
 
-func (p *AtlasFederatedAuth) ConnectionSecretObjectKey() *client.ObjectKey {
+func (f *AtlasFederatedAuth) ConnectionSecretObjectKey() *client.ObjectKey {
 	var key client.ObjectKey
-	if p.Spec.ConnectionSecretRef.Namespace != "" {
-		key = kube.ObjectKey(p.Spec.ConnectionSecretRef.Namespace, p.Spec.ConnectionSecretRef.Name)
+	if f.Spec.ConnectionSecretRef.Namespace != "" {
+		key = kube.ObjectKey(f.Spec.ConnectionSecretRef.Namespace, f.Spec.ConnectionSecretRef.Name)
 	} else {
-		key = kube.ObjectKey(p.Namespace, p.Spec.ConnectionSecretRef.Name)
+		key = kube.ObjectKey(f.Namespace, f.Spec.ConnectionSecretRef.Name)
 	}
 	return &key
 }
