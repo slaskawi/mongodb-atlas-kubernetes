@@ -79,11 +79,7 @@ func (r *AtlasFederatedAuthReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	connection, err := atlas.ReadConnection(log, r.Client, types.NamespacedName{},
-		&types.NamespacedName{
-			Name:      fedauth.Spec.ConnectionSecretRef.Name,
-			Namespace: fedauth.Spec.ConnectionSecretRef.Namespace,
-		},
-	)
+		fedauth.ConnectionSecretObjectKey())
 	if err != nil {
 		result = workflow.Terminate(workflow.AtlasCredentialsNotProvided, err.Error())
 		setCondition(workflowCtx, status.ProjectReadyType, result)
