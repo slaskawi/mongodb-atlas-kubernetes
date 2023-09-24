@@ -24,6 +24,7 @@ func (r *AtlasFederatedAuthReconciler) ensureFederatedAuth(service *workflow.Con
 
 	orgID := service.Connection.OrgID
 
+	// Get current IDP for the ORG
 	atlasFedSettings, _, err := service.Client.FederatedSettings.Get(context.Background(), orgID)
 	if err != nil {
 		return workflow.Terminate(workflow.FederatedAuthNotAvailable, err.Error())
@@ -31,6 +32,7 @@ func (r *AtlasFederatedAuthReconciler) ensureFederatedAuth(service *workflow.Con
 
 	atlasFedSettingsID := atlasFedSettings.ID
 
+	// Get current Org config
 	orgConfig, _, err := service.Client.FederatedSettings.GetConnectedOrg(context.Background(), atlasFedSettingsID, orgID)
 	if err != nil {
 		return workflow.Terminate(workflow.FederatedAuthOrgNotConnected, err.Error())
@@ -43,16 +45,11 @@ func (r *AtlasFederatedAuthReconciler) ensureFederatedAuth(service *workflow.Con
 		return workflow.Terminate(workflow.Internal, fmt.Sprintln("Can not convert Federated Auth spec to Atlas", err.Error()))
 	}
 
-	connectedOrgSettings, _, err := service.Client.FederatedSettings.GetConnectedOrg(context.Background(), atlasFedSettingsID, orgID)
-	if err != nil {
-		return workflow.Terminate(workflow.Internal, err.Error())
-	}
-
 	if result := r.ensureIDPSettings(atlasFedSettingsID, idpID, fedauth, &service.Client); !result.IsOk() {
 		return result
 	}
 
-	if federatedSettingsAreEqual(operatorConf, connectedOrgSettings) {
+	if federatedSettingsAreEqual(operatorConf, orgConfig) {
 		return workflow.OK()
 	}
 
